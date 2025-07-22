@@ -1,4 +1,4 @@
-from airflow import dag, task
+from airflow.sdk import dag, task
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 from airflow.sdk.bases.sensor import PokeReturnValue
 # from airflow.providers.standard.operators.python import PythonOperator
@@ -7,7 +7,8 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 
 
 @dag
-def user_processing(
+def user_processing():
+    create_table = SQLExecuteQueryOperator(
     task_id="create_table"
     ,conn_id="postgres"
     ,sql="""
@@ -19,7 +20,7 @@ def user_processing(
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """
-)
+    )
 
     @task.sensor(poke_interval=30, timeout=300)
     def is_api_available() -> PokeReturnValue:
@@ -41,7 +42,7 @@ def user_processing(
             "id": fake_user['id'],
             "firstname": fake_user['personalInfo']['firstName'],
             "lastname": fake_user['personalInfo']['lastName'],
-            "email" fake_user['personalInfo']['email'],
+            "email": fake_user['personalInfo']['email'],
         }
 
     @task
@@ -57,7 +58,7 @@ def user_processing(
 
     @task
     def store_user():
-        hook = PostgresHook(postgers_conn_id="postgres")
+        hook = PostgresHook(postgres_conn_id="postgres")
         hook.copy_expert(
             sql="COPY users FROM STDIN WITH CSV HEADER",
             filename= "/tmp/user_info.csv"

@@ -1,0 +1,8 @@
+{"timestamp":"2025-07-28T18:03:32.059102","level":"info","event":"DAG bundles loaded: dags-folder","logger":"airflow.dag_processing.bundles.manager.DagBundlesManager"}
+{"timestamp":"2025-07-28T18:03:32.064890","level":"info","event":"Filling up the DagBag from /opt/airflow/dags/orchestrated-duration-prediction-dag.py","logger":"airflow.models.dagbag.DagBag"}
+{"timestamp":"2025-07-28T18:03:38.360956Z","level":"info","event":"inicio","chan":"stdout","logger":"task"}
+{"timestamp":"2025-07-28T18:03:38.378760Z","level":"info","event":"hay task y dates","chan":"stdout","logger":"task"}
+{"timestamp":"2025-07-28T18:03:38.380410Z","level":"info","event":"Loading training data for: 2025-03","chan":"stdout","logger":"task"}
+{"timestamp":"2025-07-28T18:03:38.380743Z","level":"info","event":"Loading validation data for: 2025-04","chan":"stdout","logger":"task"}
+{"timestamp":"2025-07-28T18:03:38.380907Z","level":"info","event":"https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2025-03.parquet","chan":"stdout","logger":"task"}
+{"timestamp":"2025-07-28T18:03:39.959011Z","level":"error","event":"Process terminated by signal","signal":-15,"signal_name":"SIGTERM","logger":"task"}

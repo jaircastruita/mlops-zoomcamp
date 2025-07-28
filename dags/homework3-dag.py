@@ -3,9 +3,9 @@
 
 """
 This script defines an Airflow DAG for orchestrating the training of a simple machine learning model to predict NYC taxi trip durations.
-It includes tasks for setting up the environment, loading and preparing data, feature engineering, training the model with XGBoost, and validating the model performance using MLflow for experiment tracking.
+It includes tasks for setting up the environment, loading and preparing data, feature engineering, training the model and saving it using MLflow for experiment tracking and model registry.
 
-Used Claude Sonnet 4 for first draft and cleaned and corrected until having a PoC 
+Based on the orchestrated-duration-prediction-dag.py script, adapted for the 3rd homework questions (different training, model save and registry) 
 """
 
 from datetime import datetime, timedelta
@@ -13,9 +13,10 @@ from dateutil.relativedelta import relativedelta #to calculate relative dates
 import pickle
 from pathlib import Path
 
+import mlflow.sklearn
 import pandas as pd
-import xgboost as xgb
 from sklearn.feature_extraction import DictVectorizer
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import root_mean_squared_error
 import mlflow
 
@@ -38,58 +39,24 @@ default_args = {
 
 # Create the DAG
 dag = DAG(
-    'nyc_taxi_duration_prediction',
+    'nyc_taxi_linear_duration_prediction',
     default_args=default_args,
     description='Train ML model to predict NYC taxi trip duration',
     schedule='@monthly',  # Run monthly
     catchup=False,
     max_active_runs=1,
-    tags=['ml', 'xgboost', 'mlflow', 'taxi'],
+    tags=['ml', 'linear_regression', 'mlflow', 'taxi'],
 )
 
-#Trying to make these variables global
-mlflow.set_tracking_uri("http://mlops-zoomcamp-mlflow-1:5000") #docker container here
+#Global mlflow settings
+mlflow.set_tracking_uri("http://03-orchestration-mlflow-1:5000") #docker container here
 mlflow.set_experiment("nyc-taxi-experiment")
 models_folder = Path('models')
 models_folder.mkdir(exist_ok=True)
 
-#Maybe not needed, but keeping for clarity
-def setup_environment(**context): 
-    """Setup MLflow and create necessary directories"""
-    #mlflow.set_tracking_uri("http://localhost:5000") #default non containerized 
-    mlflow.set_tracking_uri("http://mlops-zoomcamp-mlflow-1:5000") #the docker container here
-    mlflow.set_experiment("nyc-taxi-experiment")
-    
-    models_folder = Path('models')
-    models_folder.mkdir(exist_ok=True)
-    
-    print("Environment setup completed")
-
-
-def read_dataframe(year, month):
-    """Read and preprocess taxi data"""
-    url = f'https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{year}-{month:02d}.parquet'
-    print(url)
-    df = pd.read_parquet(url)
-    original_shape = df.shape
-    print(f"Original data shape: {df.shape}")
-
-    df['duration'] = df.tpep_dropoff_datetime - df.tpep_pickup_datetime
-    df.duration = df.duration.apply(lambda td: td.total_seconds() / 60)
-
-    df = df[(df.duration >= 1) & (df.duration <= 60)]
-
-    categorical = ['PULocationID', 'DOLocationID']
-    df[categorical] = df[categorical].astype(str)
-
-    df['PU_DO'] = df['PULocationID'] + '_' + df['DOLocationID']
-
-    return df, original_shape
-
 
 def get_training_dates(**context):
     """Calculate training and validation dates based on current execution date"""
-    #logical_date = context.get('logical_date')#, datetime.now())
     logical_date = context['logical_date']
     
     # Training data: 4 months ago, because 2 months ago isn't available yet
@@ -113,35 +80,45 @@ def get_training_dates(**context):
         'val_month': val_month
     }
 
+def read_dataframe(year, month):
+    """Read and preprocess taxi data"""
+    url = f'https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{year}-{month:02d}.parquet'
+    print(url)
+    df = pd.read_parquet(url)
+    original_shape = df.shape
+    print(f"Original data shape: {df.shape}")
+
+    df['duration'] = df.tpep_dropoff_datetime - df.tpep_pickup_datetime
+    df.duration = df.duration.apply(lambda td: td.total_seconds() / 60)
+
+    df = df[(df.duration >= 1) & (df.duration <= 60)]
+
+    categorical = ['PULocationID', 'DOLocationID']
+    df[categorical] = df[categorical].astype(str)
+
+    #As instructed: Use pick up and drop off locations separately, don't create a combination feature.
+    #df['PU_DO'] = df['PULocationID'] + '_' + df['DOLocationID']
+
+    return df, original_shape
+
 
 def load_and_prepare_data(**context):
     """Load training and validation data"""
     # Get dates from previous task or calculate dynamically
-    
     task_instance = context['task_instance']
     dates = task_instance.xcom_pull(task_ids='calculate_dates')
-    
-    # Fallback to manual variables if needed
-    if not dates:
-        train_year = int(Variable.get("training_year", default_var=datetime.now().year))
-        train_month = int(Variable.get("training_month", default_var=datetime.now().month))
-        val_year = train_year if train_month < 12 else train_year + 1
-        val_month = train_month + 1 if train_month < 12 else 1
-    else:
-        train_year = dates['train_year']
-        train_month = dates['train_month']
-        val_year = dates['val_year']
-        val_month = dates['val_month']
+
+    train_year = dates['train_year']
+    train_month = dates['train_month']
+    val_year = dates['val_year']
+    val_month = dates['val_month']
     
     print(f"Loading training data for: {train_year}-{train_month:02d}")
     print(f"Loading validation data for: {val_year}-{val_month:02d}")
     
     # Load training and validation data
-    #df_train,  = read_dataframe(year=train_year, month=train_month)
-    #df_val = read_dataframe(year=val_year, month=val_month)
     df_train, original_train_shape = read_dataframe(year=train_year, month=train_month)
     df_val, original_val_shape = read_dataframe(year=val_year, month=val_month)
-    
     
     # Save dataframes for next tasks
     df_train.to_parquet('/tmp/df_train.parquet')
@@ -155,7 +132,7 @@ def load_and_prepare_data(**context):
 
 def create_X(df, dv=None):
     """Create feature matrix"""
-    categorical = ['PU_DO']
+    categorical = ['PULocationID', 'DOLocationID']
     numerical = ['trip_distance']
     dicts = df[categorical + numerical].to_dict(orient='records')
 
@@ -201,7 +178,7 @@ def prepare_features(**context):
 
 
 def train_model(**context):
-    """Train XGBoost model with MLflow tracking"""
+    """Train Linear Regression model with MLflow tracking"""
     # Load preprocessed data
     with open('/tmp/X_train.pkl', 'rb') as f:
         X_train = pickle.load(f)
@@ -215,33 +192,27 @@ def train_model(**context):
         dv = pickle.load(f)
     
     with mlflow.start_run() as run:
-        train = xgb.DMatrix(X_train, label=y_train)
-        valid = xgb.DMatrix(X_val, label=y_val)
-
-        best_params = {
-            'learning_rate': 0.09585355369315604,
-            'max_depth': 30,
-            'min_child_weight': 1.060597050922164,
-            'objective': 'reg:linear',
-            'reg_alpha': 0.018060244040060163,
-            'reg_lambda': 0.011658731377413597,
-            'seed': 42
-        }
-
-        mlflow.log_params(best_params)
-
-        booster = xgb.train(
-            params=best_params,
-            dtrain=train,
-            num_boost_round=30,
-            evals=[(valid, 'validation')],
-            early_stopping_rounds=50
-        )
-
-        y_pred = booster.predict(valid)
+        # Train Linear Regression model with default parameters
+        linear_reg = LinearRegression()
+        linear_reg.fit(X_train, y_train)
+        
+        # Make predictions on validation set
+        y_pred = linear_reg.predict(X_val)
+        
+        # Calculate RMSE on validation set
         rmse = root_mean_squared_error(y_val, y_pred)
+        print(f"RMSE: {rmse:.2f} minutes")
+        
+        # Print the intercept of the model (required for Homework 3 question 5)
+        print(f"Model intercept: {linear_reg.intercept_}")
+        
+        # Log parameters (Linear Regression has no hyperparameters to tune)
+        mlflow.log_param("model_type", "LinearRegression")
+        mlflow.log_param("features", "PULocationID, DOLocationID, trip_distance")
+        
+        # Log metrics
         mlflow.log_metric("rmse", rmse)
-
+        
         # Save preprocessor
         models_folder = Path('models')
         models_folder.mkdir(exist_ok=True)
@@ -249,12 +220,46 @@ def train_model(**context):
         with open("models/preprocessor.b", "wb") as f_out:
             pickle.dump(dv, f_out)
         mlflow.log_artifact("models/preprocessor.b", artifact_path="preprocessor")
-
-        # Log model
-        mlflow.xgboost.log_model(booster, artifact_path="models_mlflow")
-
-        run_id = run.info.run_id
         
+        # Get dates from previous task, for registering the training data version in the model name
+        task_instance = context['task_instance']
+        dates = task_instance.xcom_pull(task_ids='calculate_dates')
+        year = dates['train_year']
+        month = dates['train_month']   
+
+        # Log model using MLflow
+        mlflow.sklearn.log_model(
+            linear_reg, 
+            artifact_path="models_mlflow",
+            registered_model_name=f"nyc-taxi-linear-regression-{year}-{month:02d}"
+        )
+        
+        run_id = run.info.run_id
+
+        # Check model size by downloading artifacts and reading MLmodel file
+        # Optional. This can be seen in MLFlow UI, but if you want to print it in the logs you can uncomment this:
+        """
+        import os
+        client = mlflow.tracking.MlflowClient()
+        artifact_path = client.download_artifacts(run_id, "models_mlflow")
+        mlmodel_path = os.path.join(artifact_path, "MLmodel")
+        
+        if os.path.exists(mlmodel_path):
+            with open(mlmodel_path, 'r') as f:
+                content = f.read()
+                # Look for model_size_bytes in the MLmodel file
+                for line in content.split('\n'):
+                    if 'model_size_bytes' in line:
+                        print(f"Model size: {line}")
+                        break
+                else:
+                    # If model_size_bytes not found, calculate total size
+                    total_size = sum(os.path.getsize(os.path.join(root, file)) 
+                                   for root, dirs, files in os.walk(artifact_path) 
+                                   for file in files)
+                    print(f"model_size_bytes: {total_size}")
+        """
+
         # Save run_id for potential downstream tasks
         with open("run_id.txt", "w") as f:
             f.write(run_id)
@@ -265,37 +270,7 @@ def train_model(**context):
         return run_id
 
 
-def validate_model(**context):
-    """Validate the trained model performance"""
-    with open("run_id.txt", "r") as f:
-        run_id = f.read().strip()
-    
-    # You can add model validation logic here
-    # For example, checking if RMSE is below a threshold
-    print(f"Validating model with run_id: {run_id}")
-    
-    # Example validation logic
-    client = mlflow.tracking.MlflowClient()
-    run = client.get_run(run_id)
-    rmse = run.data.metrics.get('rmse')
-    
-    if rmse and rmse < 10.0:  # Example threshold
-        print(f"Model validation passed. RMSE: {rmse}")
-        return True
-    else:
-        raise ValueError(f"Model validation failed. RMSE: {rmse}")
-
-
-# Define tasks
-""" 
-#Let's ignore this task for now, 
-#seems to work better as variables defined in the script than inside a task.
-setup_task = PythonOperator(
-    task_id='setup_environment',
-    python_callable=setup_environment,
-    dag=dag,
-)
-"""
+# Define Airflow tasks
 
 calculate_dates_task = PythonOperator(
     task_id='calculate_dates',
@@ -308,7 +283,7 @@ load_data_task = PythonOperator(
     python_callable=load_and_prepare_data,
     dag=dag,
 )
-"""
+
 prepare_features_task = PythonOperator(
     task_id='prepare_features',
     python_callable=prepare_features,
@@ -320,16 +295,6 @@ train_model_task = PythonOperator(
     python_callable=train_model,
     dag=dag,
 )
-"""
-# Also not important at this point. 
-# Leaving it so it can be used later if needed.
-"""
-validate_model_task = PythonOperator(
-    task_id='validate_model',
-    python_callable=validate_model,
-    dag=dag,
-)
-"""
 
 # Optional but recommended: Clean up temporary files
 cleanup_task = BashOperator(
@@ -339,5 +304,4 @@ cleanup_task = BashOperator(
 )
 
 # Define task dependencies
-calculate_dates_task >> load_data_task >> cleanup_task
-#prepare_features_task >> train_model_task >>
+calculate_dates_task >> load_data_task >> prepare_features_task >> train_model_task >> cleanup_task

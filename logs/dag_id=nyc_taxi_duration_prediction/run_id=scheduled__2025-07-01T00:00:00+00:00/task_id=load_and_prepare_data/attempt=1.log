@@ -1,0 +1,6 @@
+{"timestamp":"2025-07-25T03:27:25.505432","level":"info","event":"DAG bundles loaded: dags-folder","logger":"airflow.dag_processing.bundles.manager.DagBundlesManager"}
+{"timestamp":"2025-07-25T03:27:25.505968","level":"info","event":"Filling up the DagBag from /opt/airflow/dags/orchestrated-duration-prediction-dag.py","logger":"airflow.models.dagbag.DagBag"}
+{"timestamp":"2025-07-25T03:27:27.428312Z","level":"info","event":"Loading training data for: 2025-03","chan":"stdout","logger":"task"}
+{"timestamp":"2025-07-25T03:27:27.428486Z","level":"info","event":"Loading validation data for: 2025-04","chan":"stdout","logger":"task"}
+{"timestamp":"2025-07-25T03:27:27.428582Z","level":"info","event":"https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2025-03.parquet","chan":"stdout","logger":"task"}
+{"timestamp":"2025-07-25T03:27:29.020385Z","level":"error","event":"Process terminated by signal","signal":-15,"signal_name":"SIGTERM","logger":"task"}

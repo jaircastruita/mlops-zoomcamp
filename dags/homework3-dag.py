@@ -9,7 +9,7 @@ Based on the orchestrated-duration-prediction-dag.py script, adapted for the 3rd
 """
 
 from datetime import datetime, timedelta
-from dateutil.relativedelta import relativedelta #to calculate relative dates
+from dateutil.relativedelta import relativedelta # to calculate relative dates
 import pickle
 from pathlib import Path
 
@@ -49,7 +49,7 @@ dag = DAG(
 )
 
 #Global mlflow settings
-mlflow.set_tracking_uri("http://03-orchestration-mlflow-1:5000") #docker container here
+mlflow.set_tracking_uri("http://mlops-zoomcamp-mlflow-1:5000") # docker container here
 mlflow.set_experiment("nyc-taxi-experiment")
 models_folder = Path('models')
 models_folder.mkdir(exist_ok=True)
